@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/Pexels%20API-05A081?style=for-the-badge&logo=pexels&logoColor=white" alt="Pexels" />
 </p>
 
-A modern Android art collection app built with **Kotlin** and **Jetpack Compose** to practice clean architecture, local/remote data sync, dependency injection, and a robust testing pipeline.
+A modern Android art collection app built with **Kotlin** and **Jetpack Compose** to practice layered architecture, local persistence, remote data access, dependency injection, and testing.
 
 Users can search images via the **Pexels API**, save artworks locally, browse details, and manage items with individual, swipe, or bulk deletions.
 
@@ -20,15 +20,15 @@ Users can search images via the **Pexels API**, save artworks locally, browse de
 
 - **Pexels API Search:** Remote image search with loading and error states
 - **Local Persistence:** Offline storage with Room database
-- **Reactive UI:** Instant synchronization using Flow and StateFlow
+- **Reactive UI:** Automatic UI updates using Flow and StateFlow
 - **Collection Management:** Add artworks, inspect details, swipe-to-delete, and bulk delete with confirmation
-- **Shared State:** Synchronized state handling between Add and Search screens
+- **Shared State:** Shared state handling between Add and Search screens
 
 ---
 
 ## Architecture
 
-The application follows a clean, decoupled layered architecture enforcing the **Dependency Inversion Principle (DIP)**:
+The application follows a clean, decoupled layered architecture supporting the **Dependency Inversion Principle (DIP)**:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -37,17 +37,17 @@ The application follows a clean, decoupled layered architecture enforcing the **
 └──────────────────────────────┬──────────────────────────────┘
                                │ StateFlow (UI State) / Events
 ┌──────────────────────────────▼──────────────────────────────┐
-│                         ViewModel                           │
-│           Manages UI State & Business Logic                 │
+│                        ArtViewModel                         │
+│             Manages UI State & Data Operations              │
 └──────────────────────────────┬──────────────────────────────┘
                                │ Inversion of Control
 ┌──────────────────────────────▼──────────────────────────────┐
 │                  ArtRepositoryInterface                     │
-│                  Domain Layer Abstraction                   │
+│                   Repository Abstraction                    │
 └──────────────────────────────┬──────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────┐
-│                    ArtRepository (Impl)                     │
+│                  Repository (Implementation)                │
 └──────────────┬──────────────────────────────┬───────────────┘
                │                              │
 ┌──────────────▼──────────────┐┌──────────────▼───────────────┐
@@ -58,7 +58,7 @@ The application follows a clean, decoupled layered architecture enforcing the **
 
 `ArtRepositoryInterface` decouples the ViewModel from the concrete repository implementation:
 
-- **Production:** `ArtRepositoryInterface` ──────► `ArtRepository` (Room + Retrofit)
+- **Production:** `ArtRepositoryInterface` ──────► `Repository` (Room + Retrofit)
 - **Testing:** `ArtRepositoryInterface` ──────► `FakeRepository` / Mockito Mock
 
 This ensures the ViewModel remains decoupled, isolated, and completely testable without hitting disk or network layers.
@@ -82,7 +82,7 @@ The test suite systematically isolates each layer of the application:
 
 ```text
                ▲
-              / \     Compose UI Tests (Semantics, gestures, click events)
+              / \     Compose UI Tests (Semantics, layout states, click callbacks)
              /───\
             /     \    Instrumented Tests (In-memory Room DAO & Hilt DI)
            /───────\
@@ -97,26 +97,32 @@ Tested in complete isolation using a `FakeRepository` and `TestDispatcher` to co
 - Delete single items or clear the entire collection
 
 ### 2. Room DAO Tests (Instrumented)
-Executed using an **in-memory database** (`Room.inMemoryDatabaseBuilder`). Prevents disk I/O side effects and validates SQL queries, primary key conflicts, and Flow emissions cleanly.
+Executed using an **in-memory database** (`Room.inMemoryDatabaseBuilder`). Validates DAO insert/delete operations and Flow-based query results using an in-memory Room database without persistent disk side effects.
 
 ### 3. Hilt Integration Tests
-Replaces the production `RepositoryModule` using `@TestInstallIn` to inject a `FakeRepository` into instrumented test runs without manual boilerplate.
+Replaces the production `RepositoryModule` using `@TestInstallIn` and injects a `FakeRepository` through a dedicated test module.
 
 ### 4. Mockito Verification (JVM)
-Used for mock-based interaction and verification testing:
-```kotlin
-val repository = mock<ArtRepositoryInterface>()
-whenever(repository.getArtById(1)).thenReturn(testArt)
+Used for mock-based behavior and interaction verification using `mock()`, `whenever()`, and `verify()`:
 
-viewModel.getArtById(1)
-verify(repository).getArtById(1)
+```kotlin
+val repository: ArtRepositoryInterface = mock()
+
+whenever(repository.getAllArts())
+    .thenReturn(flowOf(listOf(art)))
+
+val result = repository.getAllArts().first()
+assertThat(result).contains(art)
+
+repository.insertArt(art)
+verify(repository).insertArt(art)
 ```
 
 ### 5. Compose UI Tests
 Verified with `createAndroidComposeRule` and Compose Semantics matchers:
-- Empty state visibility
-- Accurate rendering of artwork details
-- User gestures, navigation, and swipe-to-delete callbacks
+- **Empty State:** Verifies "No artwork yet" message visibility when the collection is empty
+- **Content Display:** Asserts that artwork name and artist name are rendered correctly in the list
+- **User Interactions:** Simulates item click and asserts that the `goToDetailScreen` callback triggers with the expected artwork ID
 
 ---
 
@@ -128,7 +134,7 @@ This is a portfolio and practice project. To run it locally, add your Pexels API
 PEXELS_API_KEY=YOUR_API_KEY
 ```
 
-The key is read directly via `BuildConfig` and is git-ignored by default.
+The key is read directly via `BuildConfig` and `local.properties` is excluded from Git by default.
 
 ---
 
